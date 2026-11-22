@@ -1,0 +1,7 @@
+.env
+data/taleem_dost.db
+data/sources/
+__pycache__/
+*.pyc
+.venv/
+venv/
