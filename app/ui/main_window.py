@@ -35,7 +35,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.dashboard(),"🏠 Dashboard")
         self.tabs.addTab(self.learning(),"📚 Learn")
         self.tabs.addTab(self.revision(),"🧠 Revision & Practice")
-        self.tabs.addTab(SmartLearningPage(user),"Study Insights")
+        self.tabs.addTab(SmartLearningPage(user),"💡 Study Insights")
         self.tabs.addTab(self.planner(),"📅 Study Planner")
         self.tabs.addTab(self.progress(),"📊 Progress")
         if user["role"]=="admin": self.tabs.addTab(self.admin_users(),"🛡 Users")

@@ -1,0 +1,35 @@
+[
+  {
+    "board": "BISE Peshawar",
+    "year": 2024,
+    "session": "Annual-I",
+    "subject": "Computer Science",
+    "source": "https://tayarri.com/papers/Computer-Science-12th-class-Peshawar-board-2024-past-paper.pdf",
+    "questions": [
+      ["B · Q2(1)", "Operating systems", "What is an operating system? Name at least three jobs it performs."],
+      ["B · Q2(2)", "Operating systems", "Describe an operating system that uses multiple processors and explain the benefits."],
+      ["B · Q2(3)", "Process management", "Explain the five states a process passes through under an operating system."],
+      ["B · Q2(5)", "Algorithms and flowcharts", "Draw a flowchart that reads three values, adds them, divides the total by three, and displays the average."],
+      ["B · Q2(6)", "Object-oriented programming", "Give at least four ways constructors and destructors differ in C++."],
+      ["B · Q2(13)", "Functions", "Explain C++ function overloading and illustrate it with an example."],
+      ["C · Q4(a)", "Arrays", "Explain what arrays are, identify their two main types, and show how to declare and initialize each."]
+    ]
+  },
+  {
+    "board": "BISE Peshawar",
+    "year": 2024,
+    "session": "Annual (session unspecified)",
+    "subject": "Chemistry",
+    "source": "https://tayarri.com/papers/Chemistry-12th-class-Peshawar-board-2024-past-paper.html",
+    "questions": [
+      ["B · Q2(1)", "Group 2 elements", "In what ways is beryllium unusual compared with other elements in its group?"],
+      ["B · Q2(2)", "Transition elements", "Explain why transition elements can act as catalysts."],
+      ["B · Q2(4)", "Alkynes", "Outline two ways to prepare alkynes."],
+      ["B · Q2(5)", "Stereochemistry", "Use an example to explain chirality."],
+      ["B · Q2(8)", "Carbonyl compounds", "Which laboratory tests distinguish aldehydes from ketones? Explain briefly."],
+      ["B · Q2(9)", "Carboxylic acids", "Explain why chloroacetic acid is more acidic than acetic acid."],
+      ["C · Q4(b)", "Organic reaction mechanisms", "Compare how SN1 and SN2 reactions proceed."],
+      ["C · Q6(a)", "Environmental chemistry", "Describe the greenhouse effect and its contribution to global warming."]
+    ]
+  }
+]

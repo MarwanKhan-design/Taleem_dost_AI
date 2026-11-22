@@ -393,16 +393,43 @@ def get_topic_context(topic_id):
             WHERE t.id=?""",(topic_id,)).fetchone()
         return row
 
-def add_flashcards(uid, topic_id, subject, cards):
-    with get_connection() as c:
-        for card in cards:
-            c.execute("INSERT INTO flashcards(user_id,topic_id,subject,front,back) VALUES(?,?,?,?,?)",
-                      (uid,topic_id,subject,card["front"],card["back"]))
+def sync_flashcards(uid):
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO flashcards(user_id, topic_id, subject, front, back)
+               SELECT u.id, t.id, c.subject, q.question, q.answer
+               FROM practice_questions q
+               JOIN topics t ON t.id=q.topic_id
+               JOIN chapters c ON c.id=t.chapter_id
+               JOIN users u ON u.id=?
+               WHERE q.id IN (
+                   SELECT MIN(id) FROM practice_questions
+                   WHERE status='published' AND TRIM(answer)<>''
+                   GROUP BY topic_id, question
+               )
+               AND NOT EXISTS (
+                   SELECT 1 FROM flashcards f
+                   WHERE f.user_id=u.id AND f.topic_id=t.id AND f.front=q.question
+               )
+               ORDER BY q.id""",
+            (uid,),
+        )
 
 def get_due_flashcards(uid):
     with get_connection() as c:
-        return c.execute("""SELECT * FROM flashcards WHERE user_id=? AND due_date<=date('now')
-            ORDER BY due_date,id""",(uid,)).fetchall()
+        return c.execute(
+            """SELECT f.*, q.question_type, q.options
+               FROM flashcards f
+               LEFT JOIN practice_questions q ON q.id=(
+                   SELECT id FROM practice_questions
+                   WHERE topic_id=f.topic_id AND question=f.front
+                     AND status='published' AND TRIM(answer)<>''
+                   ORDER BY id LIMIT 1
+               )
+               WHERE f.user_id=? AND f.due_date<=date('now')
+               ORDER BY f.due_date,f.id""",
+            (uid,),
+        ).fetchall()
 
 def review_flashcard(card_id, uid, quality):
     # Simple SM-2-inspired schedule: Again=0, Hard=1, Good=2, Easy=3.

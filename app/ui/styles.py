@@ -21,6 +21,7 @@ QLineEdit,QTextEdit,QComboBox,QDateEdit,QSpinBox {background:white;border:1px so
 QTableWidget {background:white;border:1px solid #E5E9F4;border-radius:9px;gridline-color:#EEF0F6;}
 QHeaderView::section {background:#EEF0FA;color:#34405F;padding:8px;border:0;font-weight:700;}
 QLabel#notice {background:#FFF5D9;color:#76520A;border:1px solid #F3D98D;border-radius:8px;padding:10px;}
+QLabel#flashcard_prompt {background:#F1EFFF;color:#292052;border:1px solid #DBD5FF;border-radius:12px;font-size:17pt;font-weight:700;padding:16px;}
 QWidget#dashboard {background:#F4F6FC;}
 QFrame#dashboard_hero {background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #1B2850,stop:1 #4D3FA6);border-radius:14px;}
 QFrame#dashboard_panel {background:white;border:1px solid #E1E6F1;border-radius:12px;}

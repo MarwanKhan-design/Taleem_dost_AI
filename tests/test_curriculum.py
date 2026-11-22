@@ -43,7 +43,7 @@ class CurriculumTest(unittest.TestCase):
                     app.processEvents()
                     self.assertEqual(window.tabs.count(), count)
                     self.assertTrue(window.tabs.tabBar().isHidden())
-                    self.assertTrue(any(b.text() == "Study Insights" for b in window.nav_group.buttons()))
+                    self.assertTrue(any(b.text() == "💡 Study Insights" for b in window.nav_group.buttons()))
                     self.assertFalse(any("AI Tutor" in b.text() for b in window.nav_group.buttons()))
                     self.assertFalse(any("Smart Learning" in b.text() for b in window.nav_group.buttons()))
                     self.assertFalse(any("Content Studio" in b.text() for b in window.nav_group.buttons()))
