@@ -4,6 +4,7 @@ from html import escape
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import Qt
 from app.database import db
+from app.ui.page_components import configure_tabs, page_layout, section_card
 from app.services.rubric import RUBRIC_PROMPTS, RUBRIC_SAMPLES, grade_answer
 
 
@@ -11,11 +12,12 @@ class SmartLearningPage(QWidget):
     def __init__(self, user):
         super().__init__()
         self.user = user
-        root = QVBoxLayout(self)
+        root = page_layout(self)
         title = QLabel("Study Insights")
         title.setObjectName("page_title")
         root.addWidget(title)
         tabs = QTabWidget()
+        configure_tabs(tabs)
         root.addWidget(tabs, 1)
         tabs.addTab(self.weakness_tab(), "My Weak Topics")
         tabs.addTab(self.flashcard_tab(), "Flashcards")
@@ -23,11 +25,14 @@ class SmartLearningPage(QWidget):
         tabs.currentChanged.connect(self.refresh_flashcards)
 
     def weakness_tab(self):
-        w=QWidget(); v=QVBoxLayout(w)
-        v.addWidget(QLabel("Topics are ranked using your saved answers to questions linked to a topic. A topic needs more practice data for a reliable picture."))
+        w=QWidget(); outer=QVBoxLayout(w); surface,v=section_card(); outer.addWidget(surface)
+        description = QLabel("Topics are ranked by your saved answers. Practise more questions to get a clearer picture.")
+        description.setWordWrap(True)
+        description.setObjectName("muted")
+        v.addWidget(description)
         b=QPushButton("Refresh my learning insights"); b.clicked.connect(self.refresh_weakness); v.addWidget(b)
         self.weak_table=QTableWidget(0,5); self.weak_table.setHorizontalHeaderLabels(["Subject","Topic","Attempts","Correct","Accuracy"]); self.weak_table.horizontalHeader().setSectionResizeMode(1,QHeaderView.Stretch); v.addWidget(self.weak_table,1)
-        self.weak_note=QLabel("No performance data yet."); self.weak_note.setObjectName("notice"); v.addWidget(self.weak_note)
+        self.weak_note=QLabel("No performance data yet."); self.weak_note.setObjectName("notice"); self.weak_note.setWordWrap(True); v.addWidget(self.weak_note)
         self.refresh_weakness(); return w
 
     def refresh_weakness(self):
@@ -42,7 +47,7 @@ class SmartLearningPage(QWidget):
             self.weak_note.setText("No topic-linked quiz attempts yet. Practise published questions that are connected to a topic to build your personal insights.")
 
     def flashcard_tab(self):
-        w=QWidget(); v=QVBoxLayout(w)
+        w=QWidget(); outer=QVBoxLayout(w); surface,v=section_card(); outer.addWidget(surface)
         self.flash_status=QLabel(); self.flash_status.setObjectName("muted"); v.addWidget(self.flash_status)
         self.card_front=QLabel(); self.card_front.setWordWrap(True); self.card_front.setMinimumHeight(110); self.card_front.setAlignment(Qt.AlignCenter); self.card_front.setTextFormat(Qt.PlainText); self.card_front.setObjectName("flashcard_prompt"); v.addWidget(self.card_front)
         self.card_response = QPlainTextEdit()
@@ -51,7 +56,7 @@ class SmartLearningPage(QWidget):
         v.addWidget(self.card_response)
         self.card_back=QTextBrowser(); v.addWidget(self.card_back, 1)
         controls=QHBoxLayout()
-        self.show_answer=QPushButton("Show answer"); self.show_answer.clicked.connect(self.reveal_card)
+        self.show_answer=QPushButton("Show answer"); self.show_answer.setObjectName("primary"); self.show_answer.clicked.connect(self.reveal_card)
         self.ratings = []
         for label,quality in [("Again",0),("Hard",1),("Good",2),("Easy",3)]:
             btn=QPushButton(label); btn.clicked.connect(lambda _,q=quality:self.rate_card(q)); controls.addWidget(btn)
@@ -117,13 +122,16 @@ class SmartLearningPage(QWidget):
 
     def board_tab(self):
         tabs = QTabWidget()
+        configure_tabs(tabs)
         tabs.addTab(self.grade_xii_tab(), "Grade XII past papers")
         tabs.addTab(self.local_board_tab(), "Local verified records")
         return tabs
 
     def grade_xii_tab(self):
         page = QWidget()
-        layout = QVBoxLayout(page)
+        outer = QVBoxLayout(page)
+        surface, layout = section_card()
+        outer.addWidget(surface)
         description = QLabel("Selected Grade XII past-paper questions, paraphrased for practice. Counts apply to this collection.")
         description.setWordWrap(True)
         layout.addWidget(description)
@@ -159,11 +167,14 @@ class SmartLearningPage(QWidget):
         self.paper_source.setText(f'<a href="{escape(paper["source"])}">Open source paper transcription</a>')
 
     def local_board_tab(self):
-        w=QWidget(); v=QVBoxLayout(w)
-        v.addWidget(QLabel("This report includes only questions explicitly marked as verified past-paper questions with a board, year and source reference. It is a record summary, not a prediction."))
+        w=QWidget(); outer=QVBoxLayout(w); surface,v=section_card(); outer.addWidget(surface)
+        description = QLabel("Verified past-paper questions with a board, year, and source reference.")
+        description.setObjectName("muted")
+        description.setWordWrap(True)
+        v.addWidget(description)
         b=QPushButton("Refresh verified-paper summary"); b.clicked.connect(self.refresh_board); v.addWidget(b)
         self.board_table=QTableWidget(0,6); self.board_table.setHorizontalHeaderLabels(["Subject","Topic","Board","Year","Session","Recorded Qs"]); self.board_table.horizontalHeader().setSectionResizeMode(1,QHeaderView.Stretch); v.addWidget(self.board_table,1)
-        self.board_note=QLabel("No verified, source-referenced past-paper questions are recorded yet."); self.board_note.setObjectName("notice"); v.addWidget(self.board_note)
+        self.board_note=QLabel("No verified, source-referenced past-paper questions are recorded yet."); self.board_note.setObjectName("notice"); self.board_note.setWordWrap(True); v.addWidget(self.board_note)
         self.refresh_board(); return w
 
     def refresh_board(self):

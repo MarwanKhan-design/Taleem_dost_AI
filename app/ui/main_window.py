@@ -9,6 +9,9 @@ from app.services.rubric import RUBRIC_PROMPTS, RUBRIC_SAMPLES, WRITTEN_TYPES, w
 from app.ui.styles import APP_STYLE
 from app.ui.smart_learning import SmartLearningPage
 from app.ui.study_chart import StudyChart
+from app.ui.study_planner import StudyPlannerWidget
+from app.ui.progress_page import ProgressDashboard
+from app.ui.page_components import CompletionRing, page_layout, section_card
 
 from app.database.curriculum import SUBJECTS
 def heading(title,sub=""):
@@ -38,17 +41,21 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.learning(),"📚 Learn")
         self.tabs.addTab(self.revision(),"🧠 Revision & Practice")
         self.tabs.addTab(SmartLearningPage(user),"💡 Study Insights")
-        self.tabs.addTab(self.planner(),"📅 Study Planner")
-        self.tabs.addTab(self.progress(),"📊 Progress")
+        self.study_planner = StudyPlannerWidget(user)
+        self.tabs.addTab(self.study_planner,"📅 Study Planner")
+        self.progress_page = ProgressDashboard(user)
+        self.tabs.addTab(self.progress_page,"📊 Progress")
         if user["role"]=="admin": self.tabs.addTab(self.admin_users(),"🛡 Users")
         self.tabs.tabBar().hide()
         self.nav_group=QButtonGroup(self); self.nav_group.setExclusive(True)
         for index in range(self.tabs.count()):
-            button=QPushButton(self.tabs.tabText(index)); button.setObjectName("nav"); button.setCheckable(True)
+            button=QPushButton(self.tabs.tabText(index).replace("&", "&&")); button.setObjectName("nav"); button.setCheckable(True)
             self.nav_group.addButton(button,index); sv.addWidget(button)
             button.clicked.connect(lambda checked,i=index:self.tabs.setCurrentIndex(i))
         self.tabs.currentChanged.connect(lambda i:self.nav_group.button(i).setChecked(True))
         self.tabs.currentChanged.connect(self.refresh_dashboard)
+        self.tabs.currentChanged.connect(self.refresh_study_planner)
+        self.tabs.currentChanged.connect(self.refresh_progress)
         self.nav_group.button(0).setChecked(True)
         sv.addStretch()
         root.addWidget(side); root.addWidget(self.tabs,1)
@@ -56,9 +63,7 @@ class MainWindow(QMainWindow):
     def dashboard(self):
         page = QWidget()
         page.setObjectName("dashboard")
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(28, 24, 28, 24)
-        layout.setSpacing(16)
+        layout = page_layout(page)
 
         header = QHBoxLayout()
         title = QLabel("Dashboard")
@@ -100,6 +105,7 @@ class MainWindow(QMainWindow):
         self.streak_detail = QLabel()
         self.completion_value = QLabel()
         self.completion_detail = QLabel()
+        self.completion_ring = CompletionRing(68)
         self.active_days_value = QLabel()
         self.active_days_detail = QLabel()
         for label, value, detail in (
@@ -118,7 +124,13 @@ class MainWindow(QMainWindow):
             detail.setObjectName("muted")
             detail.setWordWrap(True)
             panel_layout.addWidget(caption)
-            panel_layout.addWidget(value)
+            if value is self.completion_value:
+                completion_row = QHBoxLayout()
+                completion_row.addWidget(value, 1)
+                completion_row.addWidget(self.completion_ring)
+                panel_layout.addLayout(completion_row)
+            else:
+                panel_layout.addWidget(value)
             panel_layout.addWidget(detail)
             panel_layout.addStretch()
             stats.addWidget(panel, 1)
@@ -177,6 +189,7 @@ class MainWindow(QMainWindow):
         total = progress["total"] or 0
         done = progress["done"] or 0
         percent = round(done / total * 100) if total else 0
+        self.completion_ring.set_value(percent)
         self.completion_value.setText(f"{done} / {total}")
         self.completion_detail.setText(f"{percent}% of the learning library")
         self.active_days_value.setText(str(sum(value > 0 for value in streaks)))
@@ -185,23 +198,32 @@ class MainWindow(QMainWindow):
         self.active_days_detail.setText(f"{topics} {topic_label} completed this month")
 
     def learning(self):
-        p=QWidget(); outer=QVBoxLayout(p); outer.addLayout(heading("📚 Learning Library","Select a subject, chapter and topic to explore the learning library."))
+        p=QWidget(); outer=page_layout(p); outer.addLayout(heading("📚 Learning Library","Select a subject, chapter and topic to explore the learning library."))
         filters=QHBoxLayout(); self.subject_filter=QComboBox(); self.subject_filter.addItems(SUBJECTS)
         self.chapter_filter=QComboBox(); self.topic_filter=QComboBox()
         for label,w in [("Subject",self.subject_filter),("Chapter",self.chapter_filter),("Topic",self.topic_filter)]:
             col=QVBoxLayout(); col.addWidget(QLabel(label)); col.addWidget(w); filters.addLayout(col,1)
-        outer.addLayout(filters)
+        picker, picker_layout = section_card()
+        picker_layout.addLayout(filters)
+        outer.addWidget(picker)
         self.subject_filter.currentTextChanged.connect(self.refresh_chapters)
         self.chapter_filter.currentIndexChanged.connect(self.refresh_topics)
         self.topic_filter.currentIndexChanged.connect(self.show_lesson)
         self.lesson_view=QTextBrowser(); self.lesson_view.setOpenExternalLinks(True); outer.addWidget(self.lesson_view,3)
         row=QHBoxLayout()
         self.status_box=QComboBox(); self.status_box.addItems(["Not started","Learning","Needs revision","Completed"])
-        save_status=QPushButton("Save learning status"); save_status.clicked.connect(self.save_status)
+        save_status=QPushButton("Save learning status"); save_status.setObjectName("primary"); save_status.clicked.connect(self.save_status)
         self.bookmark_btn=QPushButton("☆ Bookmark"); self.bookmark_btn.clicked.connect(self.bookmark)
         row.addWidget(self.status_box); row.addWidget(save_status); row.addWidget(self.bookmark_btn); outer.addLayout(row)
-        outer.addWidget(QLabel("My private notes")); self.note_edit=QTextEdit(); self.note_edit.setMaximumHeight(110); outer.addWidget(self.note_edit)
-        nb=QPushButton("Save my notes"); nb.clicked.connect(self.save_notes); outer.addWidget(nb)
+        notes, notes_layout = section_card("My private notes")
+        self.note_edit = QTextEdit()
+        self.note_edit.setMaximumHeight(110)
+        notes_layout.addWidget(self.note_edit)
+        nb = QPushButton("Save my notes")
+        nb.setObjectName("secondary")
+        nb.clicked.connect(self.save_notes)
+        notes_layout.addWidget(nb, alignment=Qt.AlignLeft)
+        outer.addWidget(notes)
         self.refresh_chapters(); return p
 
     def refresh_chapters(self,*_):
@@ -244,7 +266,7 @@ class MainWindow(QMainWindow):
         if self.current_topic: db.save_note(self.user["id"],self.current_topic,self.note_edit.toPlainText()); QMessageBox.information(self,"Saved","Your private note has been saved.")
 
     def revision(self):
-        p=QWidget(); v=QVBoxLayout(p)
+        p=QWidget(); v=page_layout(p)
         v.addLayout(heading("📝 Exam Preparation & Mock Tests","Practise questions published by your teacher/admin. Scores are saved to your account."))
         filters=QHBoxLayout()
         self.exam_subject=QComboBox(); self.exam_subject.addItems(["All subjects"]+SUBJECTS)
@@ -252,20 +274,25 @@ class MainWindow(QMainWindow):
         self.exam_count=QSpinBox(); self.exam_count.setRange(1,50); self.exam_count.setValue(10)
         for label,w in [("Subject",self.exam_subject),("Question type",self.exam_type),("Questions",self.exam_count)]:
             col=QVBoxLayout(); col.addWidget(QLabel(label)); col.addWidget(w); filters.addLayout(col)
-        v.addLayout(filters)
+        options, options_layout = section_card()
+        options_layout.addLayout(filters)
+        v.addWidget(options)
         self.exam_info=QLabel("Choose filters, then start a practice session. Only published questions are included.")
         self.exam_info.setObjectName("notice"); self.exam_info.setWordWrap(True); v.addWidget(self.exam_info)
-        self.quiz_area=QScrollArea(); self.quiz_area.setWidgetResizable(True)
+        self.quiz_area=QScrollArea(); self.quiz_area.setWidgetResizable(True); self.quiz_area.setFrameShape(QFrame.NoFrame)
         self.quiz_inner=QWidget(); self.quiz_layout=QVBoxLayout(self.quiz_inner); self.quiz_area.setWidget(self.quiz_inner); v.addWidget(self.quiz_area,1)
         row=QHBoxLayout()
         start=QPushButton("Start Practice"); start.setObjectName("primary"); start.clicked.connect(self.start_quiz)
-        submit=QPushButton("Submit Answers"); submit.clicked.connect(self.submit_quiz)
+        submit=QPushButton("Submit Answers"); submit.setObjectName("secondary"); submit.clicked.connect(self.submit_quiz)
         self.submit_quiz_btn=submit; self.submit_quiz_btn.setEnabled(False)
         row.addWidget(start); row.addWidget(submit); v.addLayout(row)
         self.quiz_questions=[]; self.quiz_controls={}
         self.history_table=QTableWidget(0,5); self.history_table.setHorizontalHeaderLabels(["Date","Subject","Type","Score","Full credit"])
         self.history_table.horizontalHeader().setSectionResizeMode(1,QHeaderView.Stretch)
-        v.addWidget(QLabel("Recent attempts")); v.addWidget(self.history_table); self.load_quiz_history()
+        history, history_layout = section_card("Recent attempts")
+        history_layout.addWidget(self.history_table)
+        v.addWidget(history, 1)
+        self.load_quiz_history()
         return p
 
     def start_quiz(self):
@@ -356,38 +383,40 @@ class MainWindow(QMainWindow):
             vals=[x["completed_at"] or x["started_at"],x["subject"],x["quiz_type"],score,full_credit]
             for c,val in enumerate(vals): self.history_table.setItem(r,c,QTableWidgetItem(str(val)))
 
-    def planner(self):
-        p=QWidget(); v=QVBoxLayout(p); v.addLayout(heading("📅 Study Planner","Plan study sessions for this local account."))
-        self.plan_subject=QComboBox(); self.plan_subject.addItems(SUBJECTS)
-        self.plan_date=QDateEdit(); self.plan_date.setCalendarPopup(True); self.plan_date.setDate(date.today())
-        self.plan_task=QLineEdit(); self.plan_task.setPlaceholderText("e.g. Revise vectors and solve 5 numericals")
-        self.plan_minutes=QSpinBox(); self.plan_minutes.setRange(10,300); self.plan_minutes.setValue(40)
-        for label,w in [("Subject",self.plan_subject),("Date",self.plan_date),("Task",self.plan_task),("Minutes",self.plan_minutes)]: v.addWidget(QLabel(label)); v.addWidget(w)
-        b=QPushButton("Save task"); b.setObjectName("primary"); b.clicked.connect(self.save_task); v.addWidget(b)
-        self.task_table=QTableWidget(0,4); self.task_table.setHorizontalHeaderLabels(["Date","Subject","Task","Minutes"]); self.task_table.horizontalHeader().setSectionResizeMode(2,QHeaderView.Stretch); v.addWidget(self.task_table); self.load_tasks(); return self.scroll(p)
-    def save_task(self):
-        task=self.plan_task.text().strip()
-        if not task: QMessageBox.warning(self,"Task missing","Enter a task."); return
-        db.add_task(self.user["id"],self.plan_subject.currentText(),task,self.plan_date.date().toString("yyyy-MM-dd"),self.plan_minutes.value()); self.plan_task.clear(); self.load_tasks()
-    def load_tasks(self):
-        rows=db.get_tasks(self.user["id"]); self.task_table.setRowCount(len(rows))
-        for r,x in enumerate(rows):
-            for c,val in enumerate([x["study_date"],x["subject"],x["task"],x["duration_minutes"]]): self.task_table.setItem(r,c,QTableWidgetItem(str(val)))
-    def progress(self):
-        p=QWidget(); v=QVBoxLayout(p); v.addLayout(heading("📊 My Progress","Your personal topic completion summary."))
-        pr=db.get_progress(self.user["id"]); total=pr["total"] or 0; done=pr["done"] or 0
-        v.addWidget(card(f"Total topics: {total}     Completed: {done}     Completion: {round(done/total*100) if total else 0}%"))
-        v.addWidget(card("Use the Learn tab to mark topics as Learning, Needs revision or Completed. Progress is stored locally in this desktop version.")); v.addStretch(); return p
+    def refresh_study_planner(self, index):
+        if self.tabs.widget(index) is self.study_planner:
+            self.study_planner.refresh_all()
+
+    def refresh_progress(self, index):
+        if self.tabs.widget(index) is self.progress_page:
+            self.progress_page.refresh()
 
     def admin_users(self):
-        p=QWidget(); v=QVBoxLayout(p); v.addLayout(heading("🛡️ Account Management","Local desktop user administration. Not a production cloud security console."))
-        self.user_table=QTableWidget(0,6); self.user_table.setHorizontalHeaderLabels(["ID","Username","Name","Email","Role","Active"]); self.user_table.horizontalHeader().setSectionResizeMode(2,QHeaderView.Stretch); v.addWidget(self.user_table)
-        refresh=QPushButton("Refresh"); refresh.clicked.connect(self.load_users); v.addWidget(refresh)
-        self.target_user=QSpinBox(); self.target_user.setRange(1,9999999); v.addWidget(QLabel("User ID")); v.addWidget(self.target_user)
-        row=QHBoxLayout()
-        for label,active in [("Enable",True),("Disable",False)]:
-            b=QPushButton(label); b.clicked.connect(lambda _,a=active:self.change_user(a)); row.addWidget(b)
-        v.addLayout(row); self.load_users(); return p
+        p=QWidget(); v=page_layout(p); v.addLayout(heading("🛡️ Account Management","Local desktop user administration. Not a production cloud security console."))
+        accounts, accounts_layout = section_card("Accounts")
+        self.user_table=QTableWidget(0,6); self.user_table.setHorizontalHeaderLabels(["ID","Username","Name","Email","Role","Active"]); self.user_table.horizontalHeader().setSectionResizeMode(2,QHeaderView.Stretch)
+        accounts_layout.addWidget(self.user_table)
+        refresh = QPushButton("Refresh")
+        refresh.setObjectName("secondary")
+        refresh.clicked.connect(self.load_users)
+        accounts_layout.addWidget(refresh, alignment=Qt.AlignLeft)
+        v.addWidget(accounts, 1)
+
+        actions, actions_layout = section_card("Account status")
+        self.target_user = QSpinBox()
+        self.target_user.setRange(1, 9999999)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("User ID"))
+        row.addWidget(self.target_user, 1)
+        for label, active in [("Enable", True), ("Disable", False)]:
+            button = QPushButton(label)
+            button.clicked.connect(lambda _, value=active: self.change_user(value))
+            row.addWidget(button)
+        actions_layout.addLayout(row)
+        v.addWidget(actions)
+        self.load_users()
+        return p
+
     def load_users(self):
         rows=db.list_users(); self.user_table.setRowCount(len(rows))
         for r,x in enumerate(rows):

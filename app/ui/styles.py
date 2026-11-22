@@ -31,4 +31,41 @@ QPushButton#dashboard_outline {color:white;background:transparent;border:1px sol
 QPushButton#dashboard_outline:hover {background:#6658B4;}
 QPushButton#dashboard_action {color:#28205B;background:#F4F1FF;border:1px solid #F4F1FF;}
 QPushButton#dashboard_action:hover {background:#DED5FF;}
+
+/* Shared dashboard surfaces and controls */
+QTabWidget#section_tabs::pane {border:0;top:4px;}
+QPushButton {
+    background:white;color:#34405F;border:1px solid #D9DEEA;border-radius:8px;
+    padding:7px 12px;font-weight:600;
+}
+QPushButton:hover {background:#F1EFFF;border-color:#B9B2EE;}
+QPushButton:focus {border:1px solid #7669E1;}
+QPushButton:disabled,QPushButton#primary:disabled,QPushButton#secondary:disabled {
+    background:#EEF0F6;color:#788298;border:1px solid #E2E6F0;
+}
+QPushButton#secondary:hover {background:#DED9FC;}
+QLineEdit:focus,QTextEdit:focus,QPlainTextEdit:focus,QComboBox:focus,QAbstractSpinBox:focus {
+    border:1px solid #7669E1;
+}
+QPlainTextEdit,QTextBrowser,QDoubleSpinBox {
+    background:white;border:1px solid #D9DEEA;border-radius:8px;padding:7px;
+}
+QTableWidget {
+    alternate-background-color:#F7F8FD;selection-background-color:#EAE8FF;
+    selection-color:#292052;
+}
+QTableWidget::item {padding:4px 6px;}
+QGroupBox {
+    background:white;border:1px solid #E5E9F4;border-radius:12px;
+    margin-top:13px;padding:14px 10px 8px;font-weight:700;
+}
+QGroupBox::title {subcontrol-origin:margin;left:12px;padding:0 5px;color:#4435C3;}
+QProgressBar {
+    background:#EEF0FA;border:0;border-radius:7px;max-height:14px;
+    color:#101A35;text-align:center;font-weight:700;
+}
+QProgressBar::chunk {
+    background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #5546D7,stop:1 #25B9D4);
+    border-radius:7px;
+}
 """
