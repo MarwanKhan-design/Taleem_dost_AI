@@ -21,4 +21,14 @@ QLineEdit,QTextEdit,QComboBox,QDateEdit,QSpinBox {background:white;border:1px so
 QTableWidget {background:white;border:1px solid #E5E9F4;border-radius:9px;gridline-color:#EEF0F6;}
 QHeaderView::section {background:#EEF0FA;color:#34405F;padding:8px;border:0;font-weight:700;}
 QLabel#notice {background:#FFF5D9;color:#76520A;border:1px solid #F3D98D;border-radius:8px;padding:10px;}
+QWidget#dashboard {background:#F4F6FC;}
+QFrame#dashboard_hero {background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #1B2850,stop:1 #4D3FA6);border-radius:14px;}
+QFrame#dashboard_panel {background:white;border:1px solid #E1E6F1;border-radius:12px;}
+QLabel#dashboard_value {color:#192448;font-size:20pt;font-weight:750;}
+QLabel#dashboard_date {color:#4E5B79;background:#E9EDF8;border-radius:8px;padding:5px 10px;font-weight:600;}
+QPushButton#dashboard_outline,QPushButton#dashboard_action {padding:9px 13px;border-radius:8px;font-weight:700;}
+QPushButton#dashboard_outline {color:white;background:transparent;border:1px solid #B9B2EE;}
+QPushButton#dashboard_outline:hover {background:#6658B4;}
+QPushButton#dashboard_action {color:#28205B;background:#F4F1FF;border:1px solid #F4F1FF;}
+QPushButton#dashboard_action:hover {background:#DED5FF;}
 """

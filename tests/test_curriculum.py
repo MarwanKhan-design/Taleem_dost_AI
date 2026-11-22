@@ -37,12 +37,13 @@ class CurriculumTest(unittest.TestCase):
                 from PyQt5.QtWidgets import QApplication
                 from app.ui.main_window import MainWindow
                 app = QApplication.instance() or QApplication([])
-                for role, count in [("student", 5), ("teacher", 5), ("admin", 6)]:
+                for role, count in [("student", 6), ("teacher", 6), ("admin", 7)]:
                     window = MainWindow({"id": 1, "full_name": "Test Learner", "role": role})
                     window.show()
                     app.processEvents()
                     self.assertEqual(window.tabs.count(), count)
                     self.assertTrue(window.tabs.tabBar().isHidden())
+                    self.assertTrue(any(b.text() == "Study Insights" for b in window.nav_group.buttons()))
                     self.assertFalse(any("AI Tutor" in b.text() for b in window.nav_group.buttons()))
                     self.assertFalse(any("Smart Learning" in b.text() for b in window.nav_group.buttons()))
                     self.assertFalse(any("Content Studio" in b.text() for b in window.nav_group.buttons()))

@@ -1,12 +1,16 @@
 
+from calendar import monthrange
 from datetime import date
+from html import escape
 from pathlib import Path
 import shutil, re
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import *
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from app.database import db
+from app.services.rubric import RUBRIC_PROMPTS, RUBRIC_SAMPLES, WRITTEN_TYPES, written_mark_count
 from app.ui.styles import APP_STYLE
-from app.services.ai_tutor import ask_tutor, is_configured
+from app.ui.smart_learning import SmartLearningPage
+from app.ui.study_chart import StudyChart
 
 from app.database.curriculum import SUBJECTS
 def heading(title,sub=""):
@@ -17,23 +21,10 @@ def heading(title,sub=""):
 def card(text):
     w=QLabel(text); w.setObjectName("notice"); w.setWordWrap(True); w.setMinimumHeight(55); return w
 
-class TutorWorker(QThread):
-    succeeded = pyqtSignal(str)
-    failed = pyqtSignal(str)
-    def __init__(self,messages,subject,language,lesson_context):
-        super().__init__()
-        self.messages=messages; self.subject=subject; self.language=language; self.lesson_context=lesson_context
-    def run(self):
-        try:
-            answer=ask_tutor(self.messages,self.subject,self.language,self.lesson_context)
-            self.succeeded.emit(answer)
-        except Exception as exc:
-            self.failed.emit(str(exc))
-
 class MainWindow(QMainWindow):
     def __init__(self,user):
         super().__init__(); self.user=user; self.current_topic=None
-        self.setWindowTitle("Taleem Dost AI — Phase 7 Smart Learning Platform"); self.resize(1360,900); self.setMinimumSize(1050,700); self.setStyleSheet(APP_STYLE)
+        self.setWindowTitle("Taleem Dost AI — Smart Learning Platform"); self.resize(1360,900); self.setMinimumSize(1050,700); self.setStyleSheet(APP_STYLE)
         central=QWidget(); central.setObjectName("central"); self.setCentralWidget(central)
         root=QHBoxLayout(central); root.setContentsMargins(0,0,0,0)
         side=QFrame(); side.setObjectName("sidebar"); side.setFixedWidth(220); sv=QVBoxLayout(side)
@@ -44,6 +35,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.dashboard(),"🏠 Dashboard")
         self.tabs.addTab(self.learning(),"📚 Learn")
         self.tabs.addTab(self.revision(),"🧠 Revision & Practice")
+        self.tabs.addTab(SmartLearningPage(user),"Study Insights")
         self.tabs.addTab(self.planner(),"📅 Study Planner")
         self.tabs.addTab(self.progress(),"📊 Progress")
         if user["role"]=="admin": self.tabs.addTab(self.admin_users(),"🛡 Users")
@@ -54,19 +46,140 @@ class MainWindow(QMainWindow):
             self.nav_group.addButton(button,index); sv.addWidget(button)
             button.clicked.connect(lambda checked,i=index:self.tabs.setCurrentIndex(i))
         self.tabs.currentChanged.connect(lambda i:self.nav_group.button(i).setChecked(True))
+        self.tabs.currentChanged.connect(self.refresh_dashboard)
         self.nav_group.button(0).setChecked(True)
         sv.addStretch(); root.addWidget(side); root.addWidget(self.tabs,1)
 
     def dashboard(self):
-        p=QWidget(); v=QVBoxLayout(p); v.addLayout(heading("Your learning dashboard","A curriculum-first learning workspace for Grade XI."))
-        hero=QFrame(); hero.setObjectName("hero"); hv=QVBoxLayout(hero)
-        t=QLabel("Understand concepts. Practise with purpose. Track your progress."); t.setObjectName("hero_title"); hv.addWidget(t)
-        hv.addWidget(QLabel("Initial learner profile: Grade XI • BISE Peshawar • Computer Science group"))
-        v.addWidget(hero)
-        pr=db.get_progress(self.user["id"]); total=pr["total"] or 0; done=pr["done"] or 0
-        v.addWidget(card(f"Topics in library: {total}     •     Topics completed: {done}     •     Completion: {round(done/total*100) if total else 0}%"))
-        v.addWidget(card("KPK Grade XI study support: original notes, worked examples, formulas and practice. These are supplementary materials, not official textbook extracts or past papers. Check source notes and your current textbook for edition and syllabus coverage."))
-        b=QPushButton("Open Learning Library"); b.setObjectName("primary"); b.clicked.connect(lambda:self.tabs.setCurrentIndex(1)); v.addWidget(b); v.addStretch(); return p
+        page = QWidget()
+        page.setObjectName("dashboard")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(28, 24, 28, 24)
+        layout.setSpacing(16)
+
+        header = QHBoxLayout()
+        title = QLabel("Dashboard")
+        title.setObjectName("page_title")
+        header.addWidget(title, 1)
+        self.dashboard_date = QLabel()
+        self.dashboard_date.setObjectName("dashboard_date")
+        header.addWidget(self.dashboard_date)
+        layout.addLayout(header)
+
+        hero = QFrame()
+        hero.setObjectName("dashboard_hero")
+        hero_layout = QHBoxLayout(hero)
+        hero_layout.setContentsMargins(22, 18, 22, 18)
+        welcome = QVBoxLayout()
+        welcome.setSpacing(4)
+        name = self.user["full_name"].strip().split()
+        greeting = QLabel(f"Welcome, {name[0]}" if name else "Welcome")
+        greeting.setTextFormat(Qt.PlainText)
+        greeting.setObjectName("hero_title")
+        welcome.addWidget(greeting)
+        subtitle = QLabel("Grade XI study library and exam practice")
+        subtitle.setObjectName("hero_sub")
+        welcome.addWidget(subtitle)
+        hero_layout.addLayout(welcome, 1)
+        practice = QPushButton("Start practice")
+        practice.setObjectName("dashboard_outline")
+        practice.clicked.connect(lambda: self.tabs.setCurrentIndex(2))
+        library = QPushButton("Open library")
+        library.setObjectName("dashboard_action")
+        library.clicked.connect(lambda: self.tabs.setCurrentIndex(1))
+        hero_layout.addWidget(practice)
+        hero_layout.addWidget(library)
+        layout.addWidget(hero)
+
+        stats = QHBoxLayout()
+        stats.setSpacing(14)
+        self.streak_value = QLabel()
+        self.streak_detail = QLabel()
+        self.completion_value = QLabel()
+        self.completion_detail = QLabel()
+        self.active_days_value = QLabel()
+        self.active_days_detail = QLabel()
+        for label, value, detail in (
+            ("Current streak", self.streak_value, self.streak_detail),
+            ("Topics completed", self.completion_value, self.completion_detail),
+            ("Study days this month", self.active_days_value, self.active_days_detail),
+        ):
+            panel = QFrame()
+            panel.setObjectName("dashboard_panel")
+            panel_layout = QVBoxLayout(panel)
+            panel_layout.setContentsMargins(17, 12, 17, 12)
+            panel_layout.setSpacing(3)
+            caption = QLabel(label)
+            caption.setObjectName("card_title")
+            value.setObjectName("dashboard_value")
+            detail.setObjectName("muted")
+            detail.setWordWrap(True)
+            panel_layout.addWidget(caption)
+            panel_layout.addWidget(value)
+            panel_layout.addWidget(detail)
+            panel_layout.addStretch()
+            stats.addWidget(panel, 1)
+        layout.addLayout(stats)
+
+        activity = QHBoxLayout()
+        activity_title = QLabel("Study activity")
+        activity_title.setObjectName("page_title")
+        activity.addWidget(activity_title, 1)
+        self.study_month = QLabel()
+        self.study_month.setObjectName("dashboard_date")
+        activity.addWidget(self.study_month)
+        layout.addLayout(activity)
+
+        charts = QHBoxLayout()
+        charts.setSpacing(14)
+        self.monthly_streak = StudyChart(heatmap=True)
+        self.daily_topics = StudyChart()
+        for title, chart in (
+            ("Streak calendar", self.monthly_streak),
+            ("Topics completed per day", self.daily_topics),
+        ):
+            panel = QFrame()
+            panel.setObjectName("dashboard_panel")
+            column = QVBoxLayout(panel)
+            column.setContentsMargins(12, 12, 12, 6)
+            label = QLabel(title)
+            label.setObjectName("card_title")
+            column.addWidget(label)
+            column.addWidget(chart)
+            charts.addWidget(panel, 1)
+        layout.addLayout(charts)
+        layout.addStretch()
+        self.refresh_dashboard()
+        return self.scroll(page)
+
+    def refresh_dashboard(self, index=0):
+        if index != 0:
+            return
+        user_id = self.user["id"]
+        streak = db.get_study_streak(user_id)
+        today, streaks, topic_counts = db.get_monthly_study_activity(user_id)
+        first_weekday, days_in_month = monthrange(today.year, today.month)
+        self.dashboard_date.setText(f"{today:%A, %B} {today.day}")
+        self.study_month.setText(today.strftime("%B %Y"))
+        self.monthly_streak.set_data(streaks, days_in_month, first_weekday)
+        self.daily_topics.set_data(topic_counts, days_in_month)
+
+        unit = "day" if streak == 1 else "days"
+        self.streak_value.setText(f"{streak} {unit}")
+        self.streak_detail.setText(
+            "You earned today's streak." if streaks[-1]
+            else "Complete a topic or submit an answered quiz."
+        )
+        progress = db.get_progress(user_id)
+        total = progress["total"] or 0
+        done = progress["done"] or 0
+        percent = round(done / total * 100) if total else 0
+        self.completion_value.setText(f"{done} / {total}")
+        self.completion_detail.setText(f"{percent}% of the learning library")
+        self.active_days_value.setText(str(sum(value > 0 for value in streaks)))
+        topics = sum(topic_counts)
+        topic_label = "topic" if topics == 1 else "topics"
+        self.active_days_detail.setText(f"{topics} {topic_label} completed this month")
 
     def learning(self):
         p=QWidget(); outer=QVBoxLayout(p); outer.addLayout(heading("📚 Learning Library","Select a subject, chapter and topic to explore the learning library."))
@@ -116,6 +229,7 @@ class MainWindow(QMainWindow):
                 html+="<h2>Formula library</h2>"
                 for f in forms: html+=f"<p><b>{f['name']}</b>: {f['expression']}<br>{f['symbols']}<br>SI units: {f['si_units']}<br>{f['explanation']}</p>"
             self.lesson_view.setHtml(html)
+        self.status_box.setCurrentText(db.get_topic_status(self.user["id"], tid))
         self.note_edit.setPlainText(db.get_note(self.user["id"],tid)); self.bookmark_btn.setText("★ Bookmarked" if db.is_bookmarked(self.user["id"],tid) else "☆ Bookmark")
     def save_status(self):
         if self.current_topic:
@@ -126,132 +240,12 @@ class MainWindow(QMainWindow):
     def save_notes(self):
         if self.current_topic: db.save_note(self.user["id"],self.current_topic,self.note_edit.toPlainText()); QMessageBox.information(self,"Saved","Your private note has been saved.")
 
-    def ai_tutor_page(self):
-        p=QWidget(); v=QVBoxLayout(p)
-        v.addLayout(heading("🤖 Taleem Dost AI Tutor","Ask questions and receive step-by-step explanations. An OpenAI API key is required to activate the tutor."))
-        settings=QHBoxLayout()
-        self.tutor_subject=QComboBox(); self.tutor_subject.addItems(SUBJECTS)
-        self.tutor_language=QComboBox(); self.tutor_language.addItems(["English","Urdu","Pashto","English + Urdu"])
-        self.tutor_topic=QComboBox(); self.tutor_topic.addItem("No lesson context",None)
-        for t in db.get_topics():
-            self.tutor_topic.addItem(f"{t['subject']} • {t['title']}",t["id"])
-        for label,w in [("Subject",self.tutor_subject),("Language",self.tutor_language),("Reference lesson (optional)",self.tutor_topic)]:
-            col=QVBoxLayout(); col.addWidget(QLabel(label)); col.addWidget(w); settings.addLayout(col,1)
-        v.addLayout(settings)
-        self.tutor_status=QLabel("AI service configured." if is_configured() else "AI is not configured yet. Add your API key to Windows environment variables, then restart Taleem Dost AI.")
-        self.tutor_status.setObjectName("notice"); self.tutor_status.setWordWrap(True); v.addWidget(self.tutor_status)
-        self.tutor_chat=QTextBrowser(); self.tutor_chat.setOpenExternalLinks(True)
-        self.tutor_chat.setHtml("<h3>Welcome to Taleem Dost AI Tutor!</h3><p>Try asking: Explain Newton's second law with a solved numerical.</p>")
-        v.addWidget(self.tutor_chat,1)
-        self.tutor_input=QPlainTextEdit(); self.tutor_input.setPlaceholderText("Type your question here... (Ctrl+Enter to send)"); self.tutor_input.setMaximumHeight(95); v.addWidget(self.tutor_input)
-        row=QHBoxLayout()
-        self.tutor_send=QPushButton("Send question"); self.tutor_send.setObjectName("primary"); self.tutor_send.clicked.connect(self.send_tutor_question)
-        clear=QPushButton("Clear conversation"); clear.clicked.connect(self.clear_tutor_chat)
-        voice=QPushButton("🎙 Voice input"); voice.setToolTip("Uses speech recognition through Google's online speech service.")
-        voice.clicked.connect(self.voice_input)
-        row.addWidget(self.tutor_send); row.addWidget(voice); row.addWidget(clear); v.addLayout(row)
-        self.tutor_messages=[]; self.tutor_html=[]; self.tutor_worker=None
-        return p
-
-    def voice_input(self):
-        # Audio is processed by Google's online speech recognition service. Ask consent each time.
-        answer=QMessageBox.question(self,"Voice privacy",
-            "Voice input sends microphone audio to Google's online speech-recognition service for transcription. Continue?",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if answer != QMessageBox.Yes: return
-        try:
-            import speech_recognition as sr
-        except ImportError:
-            QMessageBox.warning(self,"Voice package missing","Run: python -m pip install SpeechRecognition PyAudio")
-            return
-        self.tutor_status.setText("Listening for up to 8 seconds. Speak clearly...")
-        self.voice_button = self.sender()
-        self.voice_button.setEnabled(False)
-        class VoiceWorker(QThread):
-            result=pyqtSignal(str); error=pyqtSignal(str)
-            def run(worker_self):
-                try:
-                    recognizer=sr.Recognizer()
-                    with sr.Microphone() as source:
-                        recognizer.adjust_for_ambient_noise(source,duration=0.5)
-                        audio=recognizer.listen(source,timeout=5,phrase_time_limit=8)
-                    worker_self.result.emit(recognizer.recognize_google(audio))
-                except Exception as exc: worker_self.error.emit(str(exc))
-        self.voice_worker=VoiceWorker()
-        self.voice_worker.result.connect(self.voice_ready)
-        self.voice_worker.error.connect(self.voice_failed)
-        self.voice_worker.start()
-
-    def voice_ready(self,text):
-        self.tutor_input.setPlainText((self.tutor_input.toPlainText()+" "+text).strip())
-        self.tutor_status.setText("Voice transcription added to your question. Review it before sending.")
-        self.voice_button.setEnabled(True)
-
-    def voice_failed(self,message):
-        self.tutor_status.setText("Voice input failed: "+message)
-        self.voice_button.setEnabled(True)
-
-    def selected_lesson_context(self):
-        tid=self.tutor_topic.currentData()
-        if not tid: return ""
-        lesson=db.get_lesson(tid)
-        topics=db.get_topics()
-        topic=next((x for x in topics if x["id"]==tid),None)
-        if not lesson or not topic: return ""
-        parts=[f"Topic: {topic['title']}",f"Subject: {topic['subject']}"]
-        for key,label in [("introduction","Introduction"),("beginner_explanation","Beginner explanation"),
-                          ("detailed_explanation","Detailed explanation"),("definitions","Definitions"),
-                          ("examples","Examples"),("revision_notes","Revision notes"),("source_reference","Source reference")]:
-            if lesson[key]: parts.append(label+": "+lesson[key])
-        return "\n\n".join(parts)
-
-    def append_tutor_message(self,role,text):
-        safe=text.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace("\n","<br>")
-        label="You" if role=="user" else "Taleem Dost AI"
-        self.tutor_html.append(f"<p><b>{label}:</b><br>{safe}</p>")
-        self.tutor_chat.setHtml("".join(self.tutor_html))
-        self.tutor_chat.verticalScrollBar().setValue(self.tutor_chat.verticalScrollBar().maximum())
-
-    def send_tutor_question(self):
-        question=self.tutor_input.toPlainText().strip()
-        if not question: return
-        if not is_configured():
-            QMessageBox.warning(self,"AI not configured","Set OPENAI_API_KEY in Windows environment variables, restart the app, and try again."); return
-        self.tutor_input.clear(); self.append_tutor_message("user",question)
-        self.tutor_messages.append({"role":"user","content":question})
-        self.tutor_send.setEnabled(False); self.tutor_send.setText("Thinking...")
-        self.tutor_status.setText("The tutor is preparing your explanation. Please wait.")
-        context=self.selected_lesson_context()
-        self.tutor_worker=TutorWorker(list(self.tutor_messages),self.tutor_subject.currentText(),
-                                      self.tutor_language.currentText(),context)
-        self.tutor_worker.succeeded.connect(self.tutor_answer_ready)
-        self.tutor_worker.failed.connect(self.tutor_error)
-        self.tutor_worker.finished.connect(self.tutor_worker.deleteLater)
-        self.tutor_worker.start()
-
-    def tutor_answer_ready(self,answer):
-        self.tutor_messages.append({"role":"assistant","content":answer})
-        self.append_tutor_message("assistant",answer)
-        self.tutor_send.setEnabled(True); self.tutor_send.setText("Send question")
-        self.tutor_status.setText("Answer received. Check important syllabus or textbook details against official sources.")
-
-    def tutor_error(self,message):
-        # Remove the last user turn from conversation history so the student can retry cleanly.
-        if self.tutor_messages and self.tutor_messages[-1]["role"]=="user": self.tutor_messages.pop()
-        self.append_tutor_message("assistant","I couldn't complete that request: "+message)
-        self.tutor_send.setEnabled(True); self.tutor_send.setText("Send question")
-        self.tutor_status.setText("Request failed. Check your internet connection, API key, model access and API billing.")
-
-    def clear_tutor_chat(self):
-        self.tutor_messages=[]; self.tutor_html=[]
-        self.tutor_chat.setHtml("<h3>Conversation cleared.</h3><p>Ask a new study question whenever you're ready.</p>")
-
     def revision(self):
         p=QWidget(); v=QVBoxLayout(p)
         v.addLayout(heading("📝 Exam Preparation & Mock Tests","Practise questions published by your teacher/admin. Scores are saved to your account."))
         filters=QHBoxLayout()
         self.exam_subject=QComboBox(); self.exam_subject.addItems(["All subjects"]+SUBJECTS)
-        self.exam_type=QComboBox(); self.exam_type.addItems(["All types","MCQ","Short question","Long question","Numerical"])
+        self.exam_type=QComboBox(); self.exam_type.addItems(["All types","MCQ","Short question","Long question","Numerical","Rubric practice"])
         self.exam_count=QSpinBox(); self.exam_count.setRange(1,50); self.exam_count.setValue(10)
         for label,w in [("Subject",self.exam_subject),("Question type",self.exam_type),("Questions",self.exam_count)]:
             col=QVBoxLayout(); col.addWidget(QLabel(label)); col.addWidget(w); filters.addLayout(col)
@@ -266,14 +260,16 @@ class MainWindow(QMainWindow):
         self.submit_quiz_btn=submit; self.submit_quiz_btn.setEnabled(False)
         row.addWidget(start); row.addWidget(submit); v.addLayout(row)
         self.quiz_questions=[]; self.quiz_controls={}
-        self.history_table=QTableWidget(0,5); self.history_table.setHorizontalHeaderLabels(["Date","Subject","Type","Score","Correct"])
+        self.history_table=QTableWidget(0,5); self.history_table.setHorizontalHeaderLabels(["Date","Subject","Type","Score","Full credit"])
         self.history_table.horizontalHeader().setSectionResizeMode(1,QHeaderView.Stretch)
         v.addWidget(QLabel("Recent attempts")); v.addWidget(self.history_table); self.load_quiz_history()
         return p
 
     def start_quiz(self):
         subject=self.exam_subject.currentText(); qtype=self.exam_type.currentText()
-        rows=db.get_published_questions(subject,qtype,limit=self.exam_count.value())
+        rubric_only = qtype == "Rubric practice"
+        rows=db.get_published_questions(subject,None if rubric_only else qtype,
+                                        limit=self.exam_count.value(),rubric_only=rubric_only)
         if not rows:
             QMessageBox.information(self,"No published questions","There are no published questions matching these filters yet. Try another subject or question type.")
             return
@@ -283,7 +279,11 @@ class MainWindow(QMainWindow):
             if widget: widget.deleteLater()
         for i,q in enumerate(self.quiz_questions,1):
             box=QGroupBox(f"Question {i} — {q['question_type']}")
-            layout=QVBoxLayout(box); prompt=QLabel(q["question"]); prompt.setWordWrap(True); layout.addWidget(prompt)
+            layout=QVBoxLayout(box)
+            prompt=QLabel(RUBRIC_PROMPTS.get(q["question"], q["question"]))
+            prompt.setTextFormat(Qt.PlainText)
+            prompt.setWordWrap(True)
+            layout.addWidget(prompt)
             options=[x.strip() for x in q["options"].splitlines() if x.strip()]
             if q["question_type"]=="MCQ" and options:
                 group=QButtonGroup(box)
@@ -291,6 +291,11 @@ class MainWindow(QMainWindow):
                     rb=QRadioButton(opt); group.addButton(rb); layout.addWidget(rb)
                 self.quiz_controls[q["id"]]=("mcq",group)
             else:
+                if q["question_type"] in WRITTEN_TYPES:
+                    marks = written_mark_count(q)
+                    unit = "mark" if marks == 1 else "marks"
+                    label = f"{marks} {unit} · Answer in your own words" if marks else "Self-review · Compare with the sample after submitting"
+                    layout.addWidget(QLabel(label))
                 edit=QPlainTextEdit(); edit.setPlaceholderText("Write your answer here..."); edit.setMaximumHeight(85)
                 layout.addWidget(edit); self.quiz_controls[q["id"]]=("text",edit)
             self.quiz_layout.addWidget(box)
@@ -310,12 +315,28 @@ class MainWindow(QMainWindow):
         result=db.save_quiz_attempt(self.user["id"],self.exam_subject.currentText(),
                                     self.exam_type.currentText(),self.quiz_questions,answers)
         self.submit_quiz_btn.setEnabled(False)
-        report=f"<h2>Practice result: {result['score']}%</h2><p>{result['correct']} correct out of {result['total']} questions.</p>"
+        if result["possible"]:
+            report = (f"<h2>Practice result: {result['score']}%</h2>"
+                      f"<p>{result['earned']} / {result['possible']} marks on scored questions.</p>")
+        else:
+            report = "<h2>Practice review</h2><p>Compare your answers with the sample responses below.</p>"
         for i,q in enumerate(self.quiz_questions,1):
-            selected=answers.get(q["id"],"") or "Not answered"
-            correct=q["answer"]
-            ok=selected.strip().casefold()==correct.strip().casefold()
-            report+=f"<hr><b>Q{i}. {q['question']}</b><p>Your answer: {selected}</p><p>Correct answer: {correct}</p><p>{'Correct' if ok else 'Review this answer'}. {q['explanation']}</p>"
+            selected = escape(answers.get(q["id"], "") or "Not answered").replace("\n", "<br>")
+            sample = escape(RUBRIC_SAMPLES.get(q["question"], q["answer"])).replace("\n", "<br>")
+            prompt = escape(RUBRIC_PROMPTS.get(q["question"], q["question"]))
+            grade = result["grades"][q["id"]]
+            report += f"<hr><b>Q{i}. {prompt}</b><p>Your answer: {selected}</p><p>Sample answer: {sample}</p>"
+            if grade["points"]:
+                report += f"<p><b>{grade['earned']} / {grade['possible']} marks</b></p><ul>"
+                for point, earned in grade["points"]:
+                    feedback = "Earned (+1)" if earned else "Needs review (+0)"
+                    report += f"<li>{feedback} · {escape(point)}</li>"
+                report += "</ul>"
+            elif not grade["possible"]:
+                report += "<p>Self-review only. This answer is excluded from the score.</p>"
+            else:
+                status = "Correct" if grade["earned"] else "Review this answer"
+                report += f"<p>{status}. {escape(q['explanation'])}</p>"
         while self.quiz_layout.count():
             item=self.quiz_layout.takeAt(0); widget=item.widget()
             if widget: widget.deleteLater()
@@ -327,7 +348,9 @@ class MainWindow(QMainWindow):
         if not hasattr(self,"history_table"): return
         rows=db.get_quiz_history(self.user["id"]); self.history_table.setRowCount(len(rows))
         for r,x in enumerate(rows):
-            vals=[x["completed_at"] or x["started_at"],x["subject"],x["quiz_type"],f"{x['score_percent']}%",f"{x['correct_answers']}/{x['total_questions']}"]
+            score = f"{x['score_percent']}%" if x["total_questions"] else "Self-review"
+            full_credit = f"{x['correct_answers']}/{x['total_questions']}" if x["total_questions"] else "—"
+            vals=[x["completed_at"] or x["started_at"],x["subject"],x["quiz_type"],score,full_credit]
             for c,val in enumerate(vals): self.history_table.setItem(r,c,QTableWidgetItem(str(val)))
 
     def planner(self):

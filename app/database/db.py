@@ -1,7 +1,9 @@
 
 import sqlite3
+from datetime import date, timedelta
 from pathlib import Path
 from app.auth.security import hash_password, verify_password, validate_password
+from app.services.rubric import grade_answer
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_ROOT / "data"
@@ -73,6 +75,17 @@ def initialize_database():
             status TEXT DEFAULT 'Not started', updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY(user_id,topic_id), FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
             FOREIGN KEY(topic_id) REFERENCES topics(id) ON DELETE CASCADE);
+        CREATE TABLE IF NOT EXISTS study_activity_days (
+            user_id INTEGER NOT NULL,
+            activity_date TEXT NOT NULL,
+            PRIMARY KEY(user_id, activity_date),
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);
+        CREATE TABLE IF NOT EXISTS daily_topic_completions (
+            user_id INTEGER NOT NULL,
+            activity_date TEXT NOT NULL,
+            topic_id INTEGER NOT NULL,
+            PRIMARY KEY(user_id, activity_date, topic_id),
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);
         CREATE TABLE IF NOT EXISTS bookmarks (
             user_id INTEGER NOT NULL, topic_id INTEGER NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY(user_id,topic_id), FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -205,8 +218,103 @@ def toggle_bookmark(uid,tid):
         c.execute("INSERT INTO bookmarks(user_id,topic_id) VALUES(?,?)",(uid,tid)); return True
 def is_bookmarked(uid,tid):
     with get_connection() as c: return c.execute("SELECT 1 FROM bookmarks WHERE user_id=? AND topic_id=?",(uid,tid)).fetchone() is not None
-def mark_topic(uid,tid,status):
-    with get_connection() as c: c.execute("INSERT INTO student_topic_progress(user_id,topic_id,status,completed) VALUES(?,?,?,?) ON CONFLICT(user_id,topic_id) DO UPDATE SET status=excluded.status,completed=excluded.completed,updated_at=CURRENT_TIMESTAMP",(uid,tid,status,int(status=="Completed")))
+def get_topic_status(uid, tid):
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT status FROM student_topic_progress WHERE user_id=? AND topic_id=?",
+            (uid, tid),
+        ).fetchone()
+    return (row["status"] or "Not started") if row else "Not started"
+
+
+def _record_study_day(conn, user_id, activity_date):
+    conn.execute(
+        """INSERT INTO study_activity_days(user_id, activity_date) VALUES (?, ?)
+           ON CONFLICT(user_id, activity_date) DO NOTHING""",
+        (user_id, activity_date),
+    )
+
+
+def get_study_streak(user_id):
+    today = date.today()
+    expected = today
+    one_day = timedelta(days=1)
+    streak = 0
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT activity_date FROM study_activity_days
+               WHERE user_id=? AND activity_date<=?
+               ORDER BY activity_date DESC""",
+            (user_id, today.isoformat()),
+        )
+        for row in rows:
+            if streak == 0 and row["activity_date"] == (today - one_day).isoformat():
+                expected = today - one_day
+            if row["activity_date"] != expected.isoformat():
+                break
+            streak += 1
+            expected -= one_day
+    return streak
+
+
+def get_monthly_study_activity(user_id):
+    today = date.today()
+    first = today.replace(day=1)
+    with get_connection() as conn:
+        prior_days = [
+            row["activity_date"]
+            for row in conn.execute(
+                """SELECT activity_date FROM study_activity_days
+                   WHERE user_id=? AND activity_date<? ORDER BY activity_date DESC""",
+                (user_id, first.isoformat()),
+            )
+        ]
+        month_rows = conn.execute(
+            """SELECT days.activity_date, COUNT(topics.topic_id) AS completed
+               FROM study_activity_days AS days
+               LEFT JOIN daily_topic_completions AS topics
+                 ON topics.user_id=days.user_id AND topics.activity_date=days.activity_date
+               WHERE days.user_id=? AND days.activity_date BETWEEN ? AND ?
+               GROUP BY days.activity_date""",
+            (user_id, first.isoformat(), today.isoformat()),
+        ).fetchall()
+    completions = {row["activity_date"]: row["completed"] for row in month_rows}
+    streak = 0
+    for offset, prior in enumerate(prior_days, 1):
+        if prior != (first - timedelta(days=offset)).isoformat():
+            break
+        streak += 1
+    streaks = []
+    topic_counts = []
+    for day in range(1, today.day + 1):
+        key = today.replace(day=day).isoformat()
+        streak = streak + 1 if key in completions else 0
+        streaks.append(streak)
+        topic_counts.append(completions.get(key, 0))
+    return today, streaks, topic_counts
+
+
+def mark_topic(uid, tid, status):
+    completed = int(status == "Completed")
+    with get_connection() as conn:
+        result = conn.execute(
+            """INSERT INTO student_topic_progress(user_id,topic_id,status,completed)
+               VALUES(?,?,?,?)
+               ON CONFLICT(user_id,topic_id) DO UPDATE SET
+                   status=excluded.status, completed=excluded.completed,
+                   updated_at=CURRENT_TIMESTAMP
+               WHERE student_topic_progress.status IS NOT excluded.status
+                  OR student_topic_progress.completed IS NOT excluded.completed""",
+            (uid, tid, status, completed),
+        )
+        if completed and result.rowcount:
+            activity_date = date.today().isoformat()
+            _record_study_day(conn, uid, activity_date)
+            conn.execute(
+                """INSERT INTO daily_topic_completions(user_id, activity_date, topic_id)
+                   VALUES (?, ?, ?) ON CONFLICT(user_id, activity_date, topic_id) DO NOTHING""",
+                (uid, activity_date, tid),
+            )
 def get_progress(uid):
     with get_connection() as c:
         return c.execute("SELECT COUNT(*) total,SUM(CASE WHEN p.completed=1 THEN 1 ELSE 0 END) done FROM topics t LEFT JOIN student_topic_progress p ON p.topic_id=t.id AND p.user_id=?",(uid,)).fetchone()
@@ -230,7 +338,7 @@ def add_exam_question(topic_id, question, qtype, options, correct_answer, explan
              1 if provenance=="Verified past-paper question" else 0,"published",created_by))
         return cur.lastrowid
 
-def get_published_questions(subject=None, qtype=None, topic_id=None, limit=100):
+def get_published_questions(subject=None, qtype=None, topic_id=None, limit=100, rubric_only=False):
     sql="""SELECT q.*,t.title topic_title,c.subject FROM practice_questions q
            LEFT JOIN topics t ON t.id=q.topic_id LEFT JOIN chapters c ON c.id=t.chapter_id
            WHERE q.status='published'"""
@@ -238,6 +346,8 @@ def get_published_questions(subject=None, qtype=None, topic_id=None, limit=100):
     if subject and subject!="All subjects": sql+=" AND c.subject=?"; args.append(subject)
     if qtype and qtype!="All types": sql+=" AND q.question_type=?"; args.append(qtype)
     if topic_id: sql+=" AND q.topic_id=?"; args.append(topic_id)
+    if rubric_only:
+        sql += " AND q.question_type IN ('Short question','Long question') AND TRIM(q.answer) <> ''"
     sql+=" ORDER BY q.id DESC LIMIT ?"; args.append(limit)
     with get_connection() as c: return c.execute(sql,args).fetchall()
 
@@ -250,21 +360,26 @@ def set_question_status(question_id,status):
     with get_connection() as c: c.execute("UPDATE practice_questions SET status=? WHERE id=?",(status,question_id))
 
 def save_quiz_attempt(user_id,subject,quiz_type,question_rows,answers):
-    correct=0
-    for q in question_rows:
-        selected=answers.get(q["id"],"")
-        if selected.strip().casefold()==q["answer"].strip().casefold(): correct+=1
-    total=len(question_rows); score=round(correct/total*100,1) if total else 0
+    grades = {q["id"]: grade_answer(q, answers.get(q["id"], "")) for q in question_rows}
+    earned = sum(grade["earned"] for grade in grades.values())
+    possible = sum(grade["possible"] for grade in grades.values())
+    total = sum(grade["possible"] > 0 for grade in grades.values())
+    correct = sum(grade["earned"] == grade["possible"] > 0 for grade in grades.values())
+    score = round(earned / possible * 100, 1) if possible else 0
     with get_connection() as c:
         cur=c.execute("""INSERT INTO quiz_attempts(user_id,subject,quiz_type,total_questions,correct_answers,score_percent,completed_at)
                          VALUES(?,?,?,?,?,?,CURRENT_TIMESTAMP)""",(user_id,subject,quiz_type,total,correct,score))
         aid=cur.lastrowid
         for q in question_rows:
             selected=answers.get(q["id"],"")
-            is_correct=int(selected.strip().casefold()==q["answer"].strip().casefold())
+            grade = grades[q["id"]]
+            is_correct = int(grade["earned"] == grade["possible"]) if grade["possible"] else None
             c.execute("INSERT INTO question_attempts(attempt_id,question_id,selected_answer,is_correct) VALUES(?,?,?,?)",
                       (aid,q["id"],selected,is_correct))
-    return {"attempt_id":aid,"total":total,"correct":correct,"score":score}
+        if any(answers.get(q["id"], "").strip() for q in question_rows):
+            _record_study_day(c, user_id, date.today().isoformat())
+    return {"attempt_id": aid, "total": total, "correct": correct, "score": score,
+            "earned": earned, "possible": possible, "grades": grades}
 
 def get_quiz_history(user_id,limit=20):
     with get_connection() as c:
@@ -315,7 +430,7 @@ def get_weak_topics(uid):
             FROM question_attempts qa JOIN quiz_attempts a ON a.id=qa.attempt_id
             JOIN practice_questions q ON q.id=qa.question_id
             JOIN topics t ON t.id=q.topic_id JOIN chapters c ON c.id=t.chapter_id
-            WHERE a.user_id=? AND q.topic_id IS NOT NULL
+            WHERE a.user_id=? AND q.topic_id IS NOT NULL AND qa.is_correct IS NOT NULL
             GROUP BY t.id HAVING COUNT(qa.id)>=1 ORDER BY accuracy ASC,attempts DESC""",(uid,)).fetchall()
 
 def get_board_intelligence():
