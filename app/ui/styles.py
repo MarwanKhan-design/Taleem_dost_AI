@@ -2,8 +2,7 @@ APP_STYLE = """
 QMainWindow,QWidget#central {background:#F4F6FC;}
 QWidget {font-family:'Segoe UI';color:#18213A;font-size:10pt;}
 QFrame#sidebar {background:#101A35;border:0;}
-QLabel#brand {color:white;font-size:18pt;font-weight:800;padding:7px 2px;}
-QLabel#brand_sub {color:#AEBBDD;font-size:9pt;padding-bottom:14px;}
+QLabel#brand {color:white;font-size:15pt;font-weight:800;padding:10px 2px 14px;}
 QPushButton#nav {color:#D8DEF2;background:transparent;border:0;text-align:left;padding:12px 13px;border-radius:9px;}
 QPushButton#nav:hover {background:#26345B;color:white;}
 QPushButton#nav:checked {background:#5546D7;color:white;font-weight:700;}

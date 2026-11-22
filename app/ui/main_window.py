@@ -2,8 +2,6 @@
 from calendar import monthrange
 from datetime import date
 from html import escape
-from pathlib import Path
-import shutil, re
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import *
 from app.database import db
@@ -27,10 +25,14 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Taleem Dost AI — Smart Learning Platform"); self.resize(1360,900); self.setMinimumSize(1050,700); self.setStyleSheet(APP_STYLE)
         central=QWidget(); central.setObjectName("central"); self.setCentralWidget(central)
         root=QHBoxLayout(central); root.setContentsMargins(0,0,0,0)
-        side=QFrame(); side.setObjectName("sidebar"); side.setFixedWidth(220); sv=QVBoxLayout(side)
-        brand=QLabel("🎓 Taleem Dost AI"); brand.setObjectName("brand"); sv.addWidget(brand)
-        identity=QLabel(f"{user['full_name']}  •  {user['role'].upper()}")
-        identity.setObjectName("brand_sub"); identity.setWordWrap(True); sv.addWidget(identity)
+        side=QFrame(); side.setObjectName("sidebar"); sv=QVBoxLayout(side)
+        sv.setSizeConstraint(QLayout.SetMinimumSize)
+        side.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+        brand = QLabel("🎓 Taleem Dost AI")
+        brand.setObjectName("brand")
+        brand.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
+        sv.addWidget(brand)
+        sv.addSpacing(4)
         self.tabs=QTabWidget(); self.tabs.setDocumentMode(True)
         self.tabs.addTab(self.dashboard(),"🏠 Dashboard")
         self.tabs.addTab(self.learning(),"📚 Learn")
@@ -48,7 +50,8 @@ class MainWindow(QMainWindow):
         self.tabs.currentChanged.connect(lambda i:self.nav_group.button(i).setChecked(True))
         self.tabs.currentChanged.connect(self.refresh_dashboard)
         self.nav_group.button(0).setChecked(True)
-        sv.addStretch(); root.addWidget(side); root.addWidget(self.tabs,1)
+        sv.addStretch()
+        root.addWidget(side); root.addWidget(self.tabs,1)
 
     def dashboard(self):
         page = QWidget()
@@ -375,140 +378,6 @@ class MainWindow(QMainWindow):
         pr=db.get_progress(self.user["id"]); total=pr["total"] or 0; done=pr["done"] or 0
         v.addWidget(card(f"Total topics: {total}     Completed: {done}     Completion: {round(done/total*100) if total else 0}%"))
         v.addWidget(card("Use the Learn tab to mark topics as Learning, Needs revision or Completed. Progress is stored locally in this desktop version.")); v.addStretch(); return p
-
-    def content_admin(self):
-        p=QWidget(); v=QVBoxLayout(p); v.addLayout(heading("🛠 Content Studio","For admins and teachers. Upload source PDFs, organize topics, and publish lesson content."))
-        tabs=QTabWidget(); v.addWidget(tabs)
-        source=QWidget(); sv=QVBoxLayout(source); self.src_title=QLineEdit(); self.src_title.setPlaceholderText("Textbook / source title")
-        self.src_subject=QComboBox(); self.src_subject.addItems(SUBJECTS); self.src_edition=QLineEdit(); self.src_edition.setPlaceholderText("Edition / year (if known)")
-        self.src_path=QLineEdit(); self.src_path.setReadOnly(True); choose=QPushButton("Choose PDF"); choose.clicked.connect(self.choose_pdf)
-        upload=QPushButton("Import source PDF"); upload.setObjectName("primary"); upload.clicked.connect(self.import_pdf)
-        for label,w in [("Title",self.src_title),("Subject",self.src_subject),("Edition",self.src_edition),("Selected file",self.src_path)]: sv.addWidget(QLabel(label)); sv.addWidget(w)
-        sv.addWidget(choose); sv.addWidget(upload); sv.addWidget(card("PDFs are copied into this project's data/sources folder. Text extraction requires PyMuPDF. Scanned PDFs need OCR; this version does not run OCR automatically.")); tabs.addTab(source,"Source Library")
-        org=QWidget(); ov=QVBoxLayout(org); self.new_ch_subject=QComboBox(); self.new_ch_subject.addItems(SUBJECTS); self.new_ch_num=QLineEdit(); self.new_ch_title=QLineEdit()
-        for label,w in [("Subject",self.new_ch_subject),("Chapter number",self.new_ch_num),("Chapter title (verify with textbook)",self.new_ch_title)]: ov.addWidget(QLabel(label)); ov.addWidget(w)
-        cb=QPushButton("Add chapter"); cb.clicked.connect(self.create_chapter); ov.addWidget(cb)
-        self.chapter_admin=QComboBox(); self.new_topic_title=QLineEdit(); ov.addWidget(QLabel("Select chapter")); ov.addWidget(self.chapter_admin); ov.addWidget(QLabel("New topic title")); ov.addWidget(self.new_topic_title)
-        tb=QPushButton("Add topic"); tb.clicked.connect(self.create_topic); ov.addWidget(tb); tabs.addTab(org,"Chapters & Topics")
-        lesson=QWidget(); lv=QVBoxLayout(lesson); self.lesson_topic=QComboBox()
-        lv.addWidget(QLabel("Topic")); lv.addWidget(self.lesson_topic)
-        self.lesson_fields={}
-        field_defs=[("Introduction","introduction"),("Learning objectives","objectives"),("Prerequisites","prerequisites"),("Beginner explanation","beginner_explanation"),("Detailed explanation","detailed_explanation"),("Definitions","definitions"),("Vocabulary: English / Urdu / Pashto","vocabulary"),("Examples and solved work","examples"),("Common mistakes","common_mistakes"),("Revision notes","revision_notes"),("Topper notes","topper_notes"),("Summary","summary"),("Source reference (book, page, section)","source_reference")]
-        area=QScrollArea(); area.setWidgetResizable(True); fw=QWidget(); fl=QVBoxLayout(fw)
-        for label,key in field_defs:
-            fl.addWidget(QLabel(label)); e=QPlainTextEdit(); e.setPlaceholderText(label); e.setMinimumHeight(65); self.lesson_fields[key]=e; fl.addWidget(e)
-        area.setWidget(fw); lv.addWidget(area,1)
-        self.lesson_status=QComboBox(); self.lesson_status.addItems(["draft","published"]); lv.addWidget(QLabel("Publication status")); lv.addWidget(self.lesson_status)
-        self.lesson_topic.currentIndexChanged.connect(self.load_lesson_editor)
-        save=QPushButton("Save lesson"); save.setObjectName("primary"); save.clicked.connect(self.save_lesson_editor); lv.addWidget(save); tabs.addTab(lesson,"Lesson Editor")
-        formula=QWidget(); fv=QVBoxLayout(formula); self.formula_topic=QComboBox(); self.formula_name=QLineEdit(); self.formula_expr=QLineEdit(); self.formula_symbols=QLineEdit(); self.formula_units=QLineEdit(); self.formula_explain=QTextEdit()
-        for label,w in [("Topic",self.formula_topic),("Formula name",self.formula_name),("Expression",self.formula_expr),("Symbols explained",self.formula_symbols),("SI units",self.formula_units),("Explanation",self.formula_explain)]: fv.addWidget(QLabel(label)); fv.addWidget(w)
-        fb=QPushButton("Add formula"); fb.clicked.connect(self.save_formula); fv.addWidget(fb); tabs.addTab(formula,"Formula Library")
-
-        qbank=QWidget(); qv=QVBoxLayout(qbank)
-        qv.addWidget(QLabel("Create questions for student practice. For MCQs, write one option per line and set the correct option exactly as written."))
-        self.q_topic=QComboBox(); self.q_topic.addItem("General / unassigned",None)
-        self.qtype=QComboBox(); self.qtype.addItems(["MCQ","Short question","Long question","Numerical"])
-        self.q_prompt=QPlainTextEdit(); self.q_prompt.setPlaceholderText("Question text")
-        self.q_options=QPlainTextEdit(); self.q_options.setPlaceholderText("A) First option\\nB) Second option\\nC) Third option\\nD) Fourth option")
-        self.q_answer=QLineEdit(); self.q_answer.setPlaceholderText("Correct option text or model answer")
-        self.q_explanation=QPlainTextEdit(); self.q_explanation.setPlaceholderText("Explanation / worked solution")
-        self.q_provenance=QComboBox(); self.q_provenance.addItems(["Teacher-created practice","AI-generated practice","Verified past-paper question"])
-        self.q_board=QLineEdit("BISE Peshawar"); self.q_year=QLineEdit(); self.q_session=QLineEdit(); self.q_source=QLineEdit()
-        for label,w in [("Topic",self.q_topic),("Question type",self.qtype),("Question",self.q_prompt),("MCQ options (one per line)",self.q_options),("Correct answer",self.q_answer),("Explanation",self.q_explanation),("Question source",self.q_provenance),("Board",self.q_board),("Year",self.q_year),("Session",self.q_session),("Source / page / question number",self.q_source)]:
-            qv.addWidget(QLabel(label)); qv.addWidget(w)
-        qsave=QPushButton("Publish question"); qsave.setObjectName("primary"); qsave.clicked.connect(self.publish_question); qv.addWidget(qsave)
-        self.qbank_table=QTableWidget(0,5); self.qbank_table.setHorizontalHeaderLabels(["ID","Question","Type","Source","Status"]); self.qbank_table.horizontalHeader().setSectionResizeMode(1,QHeaderView.Stretch); qv.addWidget(self.qbank_table)
-        tabs.addTab(qbank,"Question Bank")
-        self.refresh_admin_lists()
-        self.load_question_bank()
-        return p
-    def choose_pdf(self):
-        path,_=QFileDialog.getOpenFileName(self,"Select textbook PDF","","PDF files (*.pdf)")
-        if path: self.src_path.setText(path)
-    def import_pdf(self):
-        src=self.src_path.text()
-        if not src or not Path(src).exists(): QMessageBox.warning(self,"Select a PDF","Choose a PDF first."); return
-        title=self.src_title.text().strip() or Path(src).stem
-        destdir=Path(__file__).resolve().parents[2]/"data"/"sources"; destdir.mkdir(parents=True,exist_ok=True)
-        dest=destdir/(re.sub(r"[^A-Za-z0-9._-]+","_",Path(src).name))
-        if Path(src).resolve()!=dest.resolve(): shutil.copy2(src,dest)
-        extracted=""
-        try:
-            import fitz
-            doc=fitz.open(str(dest)); pages=[]
-            for i,page in enumerate(doc): pages.append(f"\\n\\n--- PAGE {i+1} ---\\n"+page.get_text())
-            extracted="".join(pages)
-            (destdir/(dest.stem+".txt")).write_text(extracted,encoding="utf-8")
-        except ImportError: extracted="PyMuPDF not installed. Run: pip install PyMuPDF"
-        except Exception as exc: extracted=f"Extraction issue: {exc}"
-        from app.database.db import get_connection
-        with get_connection() as c:
-            c.execute("INSERT INTO source_documents(title,file_path,subject,edition,uploaded_by) VALUES(?,?,?,?,?)",(title,str(dest),self.src_subject.currentText(),self.src_edition.text(),self.user["id"]))
-        QMessageBox.information(self,"Source imported",f"PDF copied successfully.\\n\\nExtraction result: {len(extracted)} characters.\\nText file, when extracted, is saved beside the PDF. Please verify page references manually.")
-    def refresh_admin_lists(self):
-        chapters=db.get_chapters(); self.chapter_admin.clear()
-        for c in chapters: self.chapter_admin.addItem(f"{c['subject']} • {c['chapter_number']} {c['title']}",c["id"])
-        self.lesson_topic.clear(); self.formula_topic.clear()
-        if hasattr(self,"q_topic"):
-            self.q_topic.clear(); self.q_topic.addItem("General / unassigned",None)
-        for t in db.get_topics():
-            label=f"{t['subject']} • {t['chapter_title']} • {t['title']}"
-            self.lesson_topic.addItem(label,t["id"]); self.formula_topic.addItem(label,t["id"])
-            if hasattr(self,"q_topic"): self.q_topic.addItem(label,t["id"])
-        self.load_lesson_editor()
-    def create_chapter(self):
-        title=self.new_ch_title.text().strip()
-        if not title: return
-        db.add_chapter(self.new_ch_subject.currentText(),title,self.new_ch_num.text().strip())
-        self.new_ch_title.clear(); self.refresh_admin_lists()
-    def create_topic(self):
-        cid=self.chapter_admin.currentData(); title=self.new_topic_title.text().strip()
-        if cid and title: db.add_topic(cid,title); self.new_topic_title.clear(); self.refresh_admin_lists()
-    def load_lesson_editor(self,*_):
-        tid=self.lesson_topic.currentData()
-        if not tid: return
-        topic=next((x for x in db.get_topics() if x["id"]==tid),None); lesson=db.get_lesson(tid)
-        for key,e in self.lesson_fields.items():
-            value=(topic[key] if topic and key in ("objectives","prerequisites") else lesson[key] if lesson and key in lesson.keys() else "")
-            e.setPlainText(value or "")
-        if lesson: self.lesson_status.setCurrentText(lesson["status"])
-    def save_lesson_editor(self):
-        tid=self.lesson_topic.currentData()
-        if not tid: return
-        fields={k:e.toPlainText() for k,e in self.lesson_fields.items()}
-        db.save_lesson(tid,fields,self.lesson_status.currentText())
-        from app.database.db import get_connection
-        with get_connection() as c: c.execute("UPDATE topics SET objectives=?,prerequisites=? WHERE id=?",(fields["objectives"],fields["prerequisites"],tid))
-        QMessageBox.information(self,"Saved","Lesson content saved.")
-    def save_formula(self):
-        tid=self.formula_topic.currentData()
-        if tid and self.formula_name.text().strip() and self.formula_expr.text().strip():
-            db.add_formula(tid,self.formula_name.text(),self.formula_expr.text(),self.formula_symbols.text(),self.formula_units.text(),self.formula_explain.toPlainText())
-            QMessageBox.information(self,"Saved","Formula added.")
-    def publish_question(self):
-        prompt=self.q_prompt.toPlainText().strip(); answer=self.q_answer.text().strip()
-        if not prompt or not answer:
-            QMessageBox.warning(self,"Missing details","Enter both the question and its correct answer."); return
-        qtype=self.qtype.currentText(); options=self.q_options.toPlainText().strip()
-        if qtype=="MCQ":
-            option_lines=[x.strip() for x in options.splitlines() if x.strip()]
-            if len(option_lines)<2 or answer not in option_lines:
-                QMessageBox.warning(self,"MCQ options","Add at least two options and make the correct answer exactly match one option line."); return
-        provenance=self.q_provenance.currentText()
-        if provenance=="Verified past-paper question" and (not self.q_year.text().strip() or not self.q_source.text().strip()):
-            QMessageBox.warning(self,"Source required","A past-paper question needs its year and source/page/question number."); return
-        db.add_exam_question(self.q_topic.currentData(),prompt,qtype,options,answer,self.q_explanation.toPlainText(),
-                             provenance,self.q_board.text(),self.q_year.text(),self.q_session.text(),self.q_source.text(),self.user["id"])
-        self.q_prompt.clear(); self.q_options.clear(); self.q_answer.clear(); self.q_explanation.clear()
-        self.load_question_bank()
-        QMessageBox.information(self,"Published","Question published to student practice.")
-    def load_question_bank(self):
-        if not hasattr(self,"qbank_table"): return
-        rows=db.get_question_bank_admin(); self.qbank_table.setRowCount(len(rows))
-        for r,q in enumerate(rows):
-            vals=[q["id"],q["question"][:100],q["question_type"],q["provenance"],q["status"]]
-            for c,val in enumerate(vals): self.qbank_table.setItem(r,c,QTableWidgetItem(str(val)))
 
     def admin_users(self):
         p=QWidget(); v=QVBoxLayout(p); v.addLayout(heading("🛡️ Account Management","Local desktop user administration. Not a production cloud security console."))
