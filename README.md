@@ -1,4 +1,16 @@
-# Taleem Dost AI — Phase 7 (Smart AI Learning & Exam Intelligence)
+# Taleem Dost AI
+
+Taleem Dost AI is a Windows desktop study app built for the KPK under-17 AI tournament. It combines a Grade XI study library and exam practice with AI tools for explaining photo questions and generating revision material.
+
+Tournament Phase 2 development happens on `main`. The original submission prototype is saved at the `phase-1` tag. To open that version in a separate folder while keeping your Phase 2 working files, run `git worktree add --detach ../Taleem_Dost_AI_Phase1 phase-1`.
+
+## Tournament demo
+
+1. Open the Grade XI learning library and show a topic from the bundled KPK curriculum pack.
+2. Answer a topic-linked practice question and show how saved answers feed the weak-topic report.
+3. If the configured AI provider is available, upload a sample question to Photo Solver or generate a short quiz. Point out the AI-generated practice label when showing a generated quiz.
+
+## Prototype background
 
 Phase 7 combines the previous roadmap items 7, 8 and 9 into one upgrade. It builds on Phase 6 and retains the existing login, learning library, content studio, practice engine, study planner, notes, bookmarks and progress.
 

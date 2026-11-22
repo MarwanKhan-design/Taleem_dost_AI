@@ -1,7 +1,10 @@
 .env
-data/taleem_dost.db
+data/*.db
+data/*.db-*
 data/sources/
 __pycache__/
 *.pyc
 .venv/
 venv/
+.idea/
+/Taleem_Dost_AI_Phase7.zip
