@@ -97,9 +97,9 @@ class StudyPlannerWidget(QWidget):
         self.overview_text.setWordWrap(True)
         self.overview_text.setObjectName('notice')
         v.addWidget(self.overview_text)
-        v.addWidget(QLabel('Upcoming tasks'))
-        self.upcoming_table=self.make_table(['Due date','Subject','Task','Priority','Status'])
-        v.addWidget(self.upcoming_table)
+        v.addWidget(QLabel('Study tasks'))
+        self.overview_tasks_table=self.make_table(['Due date','Subject','Task','Priority','Status'])
+        v.addWidget(self.overview_tasks_table)
         v.addWidget(QLabel('Today\'s productivity score'))
         self.score_label=QLabel()
         self.score_label.setWordWrap(True)
@@ -389,8 +389,7 @@ class StudyPlannerWidget(QWidget):
         self.fill(self.target_table,target_rows,['subject','target','avg','gap'])
         self.refresh_syllabus()
         today=date.today().isoformat()
-        upcoming=[r for r in tasks if r['status']!='Completed' and r['study_date'] >= today][:10]
-        self.fill(self.upcoming_table,upcoming,['study_date','subject','task','priority','status'])
+        self.fill(self.overview_tasks_table,tasks,['study_date','subject','task','priority','status'])
         done=sum(1 for r in tasks if r['study_date']==today and r['status']=='Completed')
         planned=sum(1 for r in tasks if r['study_date']==today)
         with db.get_connection() as c:
